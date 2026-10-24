@@ -1,0 +1,114 @@
+# Project Audit — Bas Ek Chai (B.Tech Student Survival Guide)
+
+**Audit date:** 2026-10-24
+**Template:** bolt-vite-react-ts
+**Auditor:** Automated code review
+
+---
+
+## 1. Overview
+
+A single-page React + TypeScript app themed around Indian B.Tech student life. It curates cafes, hangouts, social events, and relaxation spots, includes a "Roast Generator," and an "SOS" form. All content is static and hardcoded — there is no backend, database, or auth.
+
+| Aspect | Value |
+|---|---|
+| Framework | React 18.3 + TypeScript 5.5 |
+| Build tool | Vite 5.4 |
+| Styling | Tailwind CSS 3.4 (custom theme) |
+| Icons | lucide-react 0.446 |
+| State | In-memory React state only |
+| Persistence | None (data is hardcoded in `src/data/content.ts`) |
+
+---
+
+## 2. File Inventory
+
+```
+src/
+├── App.tsx                    # Page composition (Navbar + 7 sections + Footer)
+├── main.tsx                   # React entry
+├── index.css                  # Tailwind layers + custom utilities
+├── vite-env.d.ts
+├── components/
+│   ├── Navbar.tsx             # Sticky nav, mobile menu, scroll state
+│   ├── Hero.tsx               # Landing hero with animated steam
+│   ├── Cafes.tsx              # Search/filter/sort cards + geolocation
+│   ├── Hangouts.tsx           # Static hangout cards
+│   ├── SocialLife.tsx         # Static social event cards
+│   ├── Relaxation.tsx         # Static relaxation spot cards
+│   ├── RoastGenerator.tsx     # Interactive roast picker + copy
+│   ├── SOS.tsx                 # Form with client-side validation
+│   └── Footer.tsx
+├── data/
+│   └── content.ts             # All typed content (cafes, hangouts, events, spots, roasts)
+└── hooks/
+    └── useScrollAnimation.ts  # IntersectionObserver fade-in helper
+```
+
+---
+
+## 3. Architecture Assessment
+
+### 3.1 Strengths
+
+- **Clean component decomposition.** Each section is a single-purpose file; `App.tsx` is just composition.
+- **Typed content model.** `content.ts` exports explicit interfaces (`Cafe`, `Hangout`, `SocialEvent`, `RelaxationSpot`, `RoastTemplate`) — no `any` leaking.
+- **Reusable animation hook.** `useScrollAnimation` is generic (`<T extends HTMLElement>`) and consistently applied across sections.
+- **Consistent design system.** Custom Tailwind color ramps (`chai`, `ember`, `leaf`), three font families, and a shared utilities layer (`card-hover`, `glass`, `text-balance`).
+- **Accessibility basics present.** Mobile menu has `aria-label`/`aria-expanded`, scroll-down link has `aria-label`, form inputs have `htmlFor`/`id` pairs, `noValidate` on the form.
+- **Safe external links.** `target="_blank"` anchors use `rel="noopener noreferrer"`.
+- **Responsive.** Mobile-first layouts with `sm:`/`md:`/`lg:` breakpoints throughout.
+
+### 3.2 Weaknesses & Risks
+
+| # | Severity | Area | Finding |
+|---|---|---|---|
+| 1 | Medium | Data | All content is hardcoded; no persistence. A Supabase instance is provisioned but unused. If the user expects SOS submissions to be saved, they currently are not — the form only flips a local `submitted` flag. |
+| 2 | Low | Geolocation | `handleDetectLocation` in `Cafes.tsx` requests the position but discards the coordinates — it only sets status to `'success'`. No distance re-sorting or map intent uses the result, so the feature is cosmetic. |
+| 3 | Low | Accessibility | No `<main>` landmark issues (it exists), but several icon-only buttons (e.g. the roast toggle in `CafeCard`, the copy button in `RoastGenerator`) rely on icons without `aria-label`. The copy button has one; the roast toggle does not. |
+| 4 | Low | SEO | `index.html` references `/vite.svg` as favicon but no such file exists in the project (it's the default Vite template value). Will 404 in production. |
+| 5 | Low | Meta | `og:image` and `twitter:image` point at `bolt.new/static/og_default.png` — a generic placeholder, not project-specific. |
+| 6 | Info | Bundle | `lucide-react` is excluded from `optimizeDeps` in `vite.config.ts`. This is fine for dev but means the entire icon set is processed at build; tree-shaking should still handle it, but worth verifying bundle size. |
+| 7 | Info | Unused code | `parseLow` regex extracts the first `₹N` from price ranges — works for the current data shape but would silently return `0` for any range without a leading rupee figure, skewing sort. Low risk given controlled data. |
+| 8 | Info | Key prop | `SocialLife` and `RoastGenerator` use array index as `key` (`key={i}`). Fine for static lists but fragile if the data becomes dynamic. |
+| 9 | Info | `Footer` | A `Github` icon is imported from lucide-react but never rendered — dead import. |
+
+---
+
+## 4. Security Review
+
+**Threat surface is minimal** — no backend, no auth, no network calls except Google Maps / Zomato link generation (user-supplied cafe names URL-encoded via `encodeURIComponent`) and the browser geolocation API.
+
+- No `dangerouslySetInnerHTML` usage anywhere.
+- No injection sinks — all content is static typed strings rendered as text.
+- External URLs are constructed with `encodeURIComponent` and opened with `rel="noopener noreferrer"`.
+- `navigator.clipboard.writeText` is called without a try/catch; on unsupported browsers it would throw uncaught. Low impact.
+
+**Verdict: No security defects found.**
+
+---
+
+## 5. Build & Tooling
+
+- `package.json` exposes `build`, `lint`, `typecheck`, `preview`, `dev`.
+- ESLint 9 with `typescript-eslint` and `react-hooks` plugin configured.
+- `dist/` already contains a prior build output (`index.html`, hashed assets, `_redirects`).
+- TypeScript is strict-ish; `tsconfig.app.json` was not re-read this audit but the typecheck script exists.
+
+---
+
+## 6. Recommendations (prioritized)
+
+1. **Decide on SOS persistence.** If submissions should be stored, wire the form to the provisioned Supabase table (with RLS). Otherwise, clearly mark the form as demo-only.
+2. **Fix the favicon.** Replace `/vite.svg` with a real asset or remove the `<link>` to avoid a 404.
+3. **Remove the dead `Github` import** in `Footer.tsx`.
+4. **Make geolocation meaningful** or remove it. Currently "Detect Location" only flips a label.
+5. **Add `aria-label` to the CafeCard roast toggle button** for icon-only accessibility.
+6. **Replace generic OG images** with project-specific art for better social sharing.
+7. *(Optional)* Move content to Supabase if non-developer editing is desired — the typed interfaces already make this a clean migration.
+
+---
+
+## 7. Summary
+
+A well-structured, visually polished single-page app with typed data, consistent design tokens, and no security issues. The main gap is the absence of persistence (the SOS form and all content are client-only), plus a couple of minor polish items (favicon, dead import, cosmetic geolocation button). The codebase is small enough that all recommendations are quick fixes.
